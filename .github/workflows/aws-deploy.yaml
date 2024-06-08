@@ -30,7 +30,7 @@ jobs:
         key: ${{ secrets.SSH_KEY }}
         port: 22
         source: "sample.txt"
-        target: "/home/${{ secrets.EC2_USER }}/"
+        target: "/"
 
     # - name: Move file to /var/www/html
     #   uses: appleboy/ssh-action@v0.1.5
