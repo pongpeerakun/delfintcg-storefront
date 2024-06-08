@@ -1,4 +1,4 @@
-name: Automated Release Deployment
+name: Deploy to EC2
 
 on:
   push:
@@ -9,29 +9,52 @@ env:
   NODE_VERSION: 18.x
   IP_ADDRESS: "52.221.242.206" # set your server's IP address here
   NUXT_PUBLIC_API_URL: https://defin.docksidehut.com/api # set your API URL here
+  USER: admin
 
 jobs:
-  test-connect-to-server:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Install SSH client
-        run: sudo apt-get install openssh-client
+    - name: Generate sample.txt
+      run: echo "This is a sample file." > sample.txt
 
-      - name: Add SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+    - name: Copy file to EC2
+      uses: appleboy/scp-action@v0.1.4
+      with:
+        host: ${{ env.IP_ADDRESS }}
+        username: ${{ env.USER }}
+        key: ${{ secrets.SSH_KEY }}
+        port: 22
+        source: "sample.txt"
+        target: "/home/${{ secrets.EC2_USER }}/"
 
-      - name: Test SSH connection
-        run: |
-          ssh -o StrictHostKeyChecking=no admin@${{ env.IP_ADDRESS }} echo "SSH connection successful"
+    # - name: Move file to /var/www/html
+    #   uses: appleboy/ssh-action@v0.1.5
+    #   with:
+    #     host: ${{ secrets.EC2_IP }}
+    #     username: ${{ secrets.EC2_USER }}
+    #     key: ${{ secrets.EC2_KEY }}
+    #     port: 22
+    #     script: |
+    #       sudo mv /home/${{ secrets.EC2_USER }}/sample.txt /var/www/html/
+    #       sudo chown www-data:www-data /var/www/html/sample.txt
 
 
+# name: Automated Release Deployment
+
+# on:
+#   push:
+#     branches:
+#       - develop
+
+# env:
+#   NODE_VERSION: 18.x
+#   IP_ADDRESS: "52.221.242.206" # set your server's IP address here
+#   NUXT_PUBLIC_API_URL: https://defin.docksidehut.com/api # set your API URL here
 
 # name: Automated Release Deployment
 
