@@ -1,4 +1,4 @@
-name: Deploy to EC2
+name: Automated Release Deployment
 
 on:
   push:
@@ -12,123 +12,66 @@ env:
   USER: admin
 
 jobs:
-  deploy:
+  create-deployment-artifacts:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'yarn'
+      - name: Build App Artifacts
+        run: |
+          touch .env
+          echo "NUXT_PUBLIC_API_URL=$NUXT_PUBLIC_API_URL" >> .env
+          echo NUXT_PUBLIC_RELEASE_VERSION=${GITHUB_REF} >> .env
+          echo NUXT_PUBLIC_GITHUB_SHA=${{ github.sha }} >> .env
+          mv .env apps/web/.env
+          yarn install
+          yarn build
+          mkdir ../temp_dir
+          cp -r ./* ../temp_dir/
+          tar -czf "${GITHUB_SHA}".tar.gz -C ../temp_dir .
+          rm -rf ../temp_dir
+      - name: Store app-artifacts for distribution
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-artifacts
+          path: ${{ github.sha }}.tar.gz
 
-    - name: Generate sample.txt
-      run: echo "This is a sample file." > sample.txt
+  prepare-release-on-servers:
+    needs: create-deployment-artifacts
+    name: "Prepare release on INT server"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: app-artifacts
+      - name: Upload app-artifacts
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ env.IP_ADDRESS }}
+          port: "22"
+          username: ${{ env.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: ${{ github.sha }}.tar.gz
+          target: /var/www/html/artifacts
 
-    - name: Copy file to EC2
-      uses: appleboy/scp-action@v0.1.4
-      with:
-        host: ${{ env.IP_ADDRESS }}
-        username: ${{ env.USER }}
-        key: ${{ secrets.SSH_KEY }}
-        port: 22
-        source: "sample.txt"
-        target: "/"
-
-    # - name: Move file to /var/www/html
-    #   uses: appleboy/ssh-action@v0.1.5
-    #   with:
-    #     host: ${{ secrets.EC2_IP }}
-    #     username: ${{ secrets.EC2_USER }}
-    #     key: ${{ secrets.EC2_KEY }}
-    #     port: 22
-    #     script: |
-    #       sudo mv /home/${{ secrets.EC2_USER }}/sample.txt /var/www/html/
-    #       sudo chown www-data:www-data /var/www/html/sample.txt
-
-
-# name: Automated Release Deployment
-
-# on:
-#   push:
-#     branches:
-#       - develop
-
-# env:
-#   NODE_VERSION: 18.x
-#   IP_ADDRESS: "52.221.242.206" # set your server's IP address here
-#   NUXT_PUBLIC_API_URL: https://defin.docksidehut.com/api # set your API URL here
-
-# name: Automated Release Deployment
-
-# on:
-#   push:
-#     branches:
-#       - develop
-
-# env:
-#   NODE_VERSION: 18.x
-#   IP_ADDRESS: "52.221.242.206" # set your server's IP address here
-#   NUXT_PUBLIC_API_URL: https://defin.docksidehut.com/api # set your API URL here
-
-# jobs:
-  # create-deployment-artifacts:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #     - name: Set up Node.js
-  #       uses: actions/setup-node@v3
-  #       with:
-  #         node-version: ${{ env.NODE_VERSION }}
-  #         cache: 'yarn'
-  #     - name: Build App Artifacts
-  #       run: |
-  #         touch .env
-  #         echo "NUXT_PUBLIC_API_URL=$NUXT_PUBLIC_API_URL" >> .env
-  #         echo NUXT_PUBLIC_RELEASE_VERSION=${GITHUB_REF} >> .env
-  #         echo NUXT_PUBLIC_GITHUB_SHA=${{ github.sha }} >> .env
-  #         mv .env apps/web/.env
-  #         yarn install
-  #         yarn build
-  #         mkdir ../temp_dir
-  #         cp -r ./* ../temp_dir/
-  #         tar -czf "${GITHUB_SHA}".tar.gz -C ../temp_dir .
-  #         rm -rf ../temp_dir
-  #     - name: Store app-artifacts for distribution
-  #       uses: actions/upload-artifact@v3
-  #       with:
-  #         name: app-artifacts
-  #         path: ${{ github.sha }}.tar.gz
-
-  # prepare-release-on-servers:
-  #   needs: create-deployment-artifacts
-  #   name: "Prepare release on INT server"
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/download-artifact@v3
-  #       with:
-  #         name: app-artifacts
-  #     - name: Upload app-artifacts
-  #       uses: appleboy/scp-action@master
-  #       with:
-  #         host: ${{ env.IP_ADDRESS }}
-  #         port: "22"
-  #         username: "root"
-  #         key: ${{ secrets.SSH_KEY }}
-  #         source: ${{ github.sha }}.tar.gz
-  #         target: /var/www/html/artifacts
-
-  #     - name: Extract archive and create directories
-  #       uses: appleboy/ssh-action@master
-  #       env:
-  #         GITHUB_SHA: ${{ github.sha }}
-  #       with:
-  #         host: ${{ env.IP_ADDRESS }}
-  #         username: "root"
-  #         key: ${{ secrets.SSH_KEY }}
-  #         port: "22"
-  #         envs: GITHUB_SHA
-  #         script: |
-  #           mkdir -p "/var/www/html/releases/${GITHUB_SHA}"
-  #           tar xzf /var/www/html/artifacts/${GITHUB_SHA}.tar.gz -C "/var/www/html/releases/${GITHUB_SHA}"
-  #           rm -rf /var/www/html/artifacts/${GITHUB_SHA}.tar.gz
+      - name: Extract archive and create directories
+        uses: appleboy/ssh-action@master
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        with:
+          host: ${{ env.IP_ADDRESS }}
+          username: ${{ env.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: "22"
+          envs: GITHUB_SHA
+          script: |
+            mkdir -p "/var/www/html/releases/${GITHUB_SHA}"
+            tar xzf /var/www/html/artifacts/${GITHUB_SHA}.tar.gz -C "/var/www/html/releases/${GITHUB_SHA}"
+            rm -rf /var/www/html/artifacts/${GITHUB_SHA}.tar.gz
 
   # activate-release:
   #   name: "Activate release"
